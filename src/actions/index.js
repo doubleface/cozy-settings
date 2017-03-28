@@ -17,6 +17,7 @@ export const RESET_PASSPHRASE_FIELD = 'RESET_PASSPHRASE_FIELD'
 export const FETCH_DEVICES = 'FETCH_DEVICES'
 export const FETCH_DEVICES_SUCCESS = 'FETCH_DEVICES_SUCCESS'
 export const FETCH_DEVICES_FAILURE = 'FETCH_DEVICES_FAILURE'
+export const INSTALL_APP = 'INSTALL_APP'
 
 export const fetchInfos = () => {
   return (dispatch, getState) => {
@@ -114,6 +115,19 @@ export const fetchDevices = () => {
           }
         })
       })
+  }
+}
+
+export const installApp = (slug, repourl) => {
+  return (dispatch, getState) => {
+    dispatch({ type: INSTALL_APP })
+    return cozyFetch('POST', `/apps/${slug}`, {
+      'Source': repourl
+    }).then(() => {
+      window.alert('Application installation in progress')
+    }).catch(error => {
+      console.error(error)
+    })
   }
 }
 
