@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useI18n } from 'twake-i18n'
 
 import {
@@ -8,6 +8,7 @@ import {
   isQueryLoading,
   useClient
 } from 'cozy-client'
+import flag from 'cozy-flags'
 import Button from 'cozy-ui/transpiled/react/Buttons'
 import Chip from 'cozy-ui/transpiled/react/Chips'
 import Divider from 'cozy-ui/transpiled/react/Divider'
@@ -24,10 +25,15 @@ import Typography from 'cozy-ui/transpiled/react/Typography'
 
 import nextcloudLogo from '@/assets/icons/nextcloud-logo.svg'
 import NextcloudMigrationDialog from '@/components/Migration/NextcloudMigrationDialog'
+import {
+  NEXTCLOUD_MIGRATIONS_DOCTYPE,
+  clearNextcloudImportedFiles
+} from '@/components/Migration/useMigration'
 import Page from '@/components/Page'
 import PageTitle from '@/components/PageTitle'
+import logger from '@/lib/logger'
 
-const NEXTCLOUD_MIGRATIONS_DOCTYPE = 'io.cozy.nextcloud.migrations'
+const RESET_NEXTCLOUD_MIGRATION_FLAG = 'drive.reset-for-migration.enabled'
 
 const buildCompletedNextcloudMigrationsQuery = () => ({
   definition: Q(NEXTCLOUD_MIGRATIONS_DOCTYPE)
@@ -38,6 +44,32 @@ const buildCompletedNextcloudMigrationsQuery = () => ({
     as: `${NEXTCLOUD_MIGRATIONS_DOCTYPE}/completed`
   }
 })
+
+// Temporary test helper: remove with RESET_NEXTCLOUD_MIGRATION_FLAG once the reset feature is fully implemented.
+const resetNextcloudMigrationForTests = async ({
+  client,
+  completedMigrationsQuery
+}) => {
+  const { data: migrationDocs } = await client
+    .collection(NEXTCLOUD_MIGRATIONS_DOCTYPE)
+    .all()
+
+  await Promise.all(
+    migrationDocs.map(migrationDoc =>
+      client.collection(NEXTCLOUD_MIGRATIONS_DOCTYPE).destroy(migrationDoc)
+    )
+  )
+
+  await clearNextcloudImportedFiles(client)
+
+  await client.resetQuery(completedMigrationsQuery.options.as)
+  const { data: refreshedCompletedMigrations } = await client.query(
+    completedMigrationsQuery.definition,
+    completedMigrationsQuery.options
+  )
+
+  return (refreshedCompletedMigrations?.length ?? 0) > 0
+}
 
 const ProviderLogo = ({ icon, alt }) => (
   <Icon icon={icon} aria-label={alt} size={40} />
@@ -92,6 +124,25 @@ const Migration = () => {
       )
     }
   }, [client, completedMigrationsQuery])
+
+  const handleCleanNextcloud = useCallback(async () => {
+    if (!flag(RESET_NEXTCLOUD_MIGRATION_FLAG) || isCleaningNextcloud) return
+
+    setIsCleaningNextcloud(true)
+
+    try {
+      setHasCompletedNextcloudMigration(false)
+      const hasCompletedMigration = await resetNextcloudMigrationForTests({
+        client,
+        completedMigrationsQuery
+      })
+      setHasCompletedNextcloudMigration(hasCompletedMigration)
+    } catch (error) {
+      logger.error('Failed to reset Nextcloud migration for tests', error)
+    } finally {
+      setIsCleaningNextcloud(false)
+    }
+  }, [client, completedMigrationsQuery, isCleaningNextcloud])
 
   const providers = [
     {
@@ -157,6 +208,8 @@ const Migration = () => {
                       className="u-m-1"
                       startIcon={<Icon icon={DeleteIcon} size={14} />}
                       color="error"
+                      onClick={handleCleanNextcloud}
+                      disabled={isCleaningNextcloud}
                     />
                   ) : (
                     <Button
